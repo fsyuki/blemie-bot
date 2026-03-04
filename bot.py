@@ -3,11 +3,27 @@ import discord
 from discord.ext import commands
 import aiohttp
 import json
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 SYSTEM_PROMPT = """You are Blemie, a chill and witty AI assistant with a big personality. You're like that one friend who's always got a clever comeback but also genuinely wants to help. You keep things casual and fun — no stiff, robotic talk. You use simple language, throw in the occasional joke, and always keep it real. When someone needs help, you get straight to the point without being boring about it. You're upbeat but not annoyingly peppy. Think: cool, helpful, a little sarcastic at times, but always got their back."""
+
+class KeepAlive(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'Blemie is alive!')
+    def log_message(self, format, *args):
+        pass
+
+def run_server():
+    server = HTTPServer(('0.0.0.0', 8080), KeepAlive)
+    server.serve_forever()
+
+threading.Thread(target=run_server, daemon=True).start()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -40,7 +56,27 @@ async def ask_groq(messages):
 
 @bot.event
 async def on_ready():
+    await bot.tree.sync()
     print(f"Blemie is online as {bot.user}!")
+
+@bot.tree.command(name="ask", description="Ask Blemie anything!")
+async def ask(interaction: discord.Interaction, question: str):
+    await interaction.response.defer()
+    user_id = str(interaction.user.id)
+    if user_id not in conversation_histories:
+        conversation_histories[user_id] = []
+    conversation_histories[user_id].append({"role": "user", "content": question})
+    if len(conversation_histories[user_id]) > 10:
+        conversation_histories[user_id] = conversation_histories[user_id][-10:]
+    reply = await ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
+    if reply:
+        conversation_histories[user_id].append({"role": "assistant", "content": reply})
+        if len(reply) > 2000:
+            await interaction.followup.send(reply[:2000])
+        else:
+            await interaction.followup.send(reply)
+    else:
+        await interaction.followup.send("hmm my brain glitched, try again 😅")
 
 @bot.event
 async def on_message(message):
