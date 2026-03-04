@@ -1,8 +1,8 @@
 import os
 import discord
 from discord.ext import commands
+from discord import app_commands
 import aiohttp
-import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -56,10 +56,14 @@ async def ask_groq(messages):
 
 @bot.event
 async def on_ready():
+    # Sync globally so /ask works in DMs and all servers
     await bot.tree.sync()
     print(f"Blemie is online as {bot.user}!")
+    print(f"Invite link: https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=277025392640")
 
+# Global /ask command that works in DMs, servers, everywhere
 @bot.tree.command(name="ask", description="Ask Blemie anything!")
+@app_commands.describe(question="What do you want to ask Blemie?")
 async def ask(interaction: discord.Interaction, question: str):
     await interaction.response.defer()
     user_id = str(interaction.user.id)
@@ -78,37 +82,35 @@ async def ask(interaction: discord.Interaction, question: str):
     else:
         await interaction.followup.send("hmm my brain glitched, try again 😅")
 
+@bot.tree.command(name="reset", description="Reset your conversation history with Blemie")
+async def reset(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    conversation_histories[user_id] = []
+    await interaction.response.send_message("memory wiped! fresh start 🧹", ephemeral=True)
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
-
     mentioned = bot.user in message.mentions
     starts_with_blemie = message.content.lower().startswith("blemie")
-
     if mentioned or starts_with_blemie:
         user_text = message.content
         if mentioned:
             user_text = user_text.replace(f"<@{bot.user.id}>", "").strip()
         elif starts_with_blemie:
             user_text = user_text[6:].strip()
-
         if not user_text:
             await message.reply("yeah? what's up 👀")
             return
-
         async with message.channel.typing():
             user_id = str(message.author.id)
             if user_id not in conversation_histories:
                 conversation_histories[user_id] = []
-
             conversation_histories[user_id].append({"role": "user", "content": user_text})
-
             if len(conversation_histories[user_id]) > 10:
                 conversation_histories[user_id] = conversation_histories[user_id][-10:]
-
             reply = await ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
-
             if reply:
                 conversation_histories[user_id].append({"role": "assistant", "content": reply})
                 if len(reply) > 2000:
