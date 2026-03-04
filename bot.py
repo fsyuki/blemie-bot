@@ -1,19 +1,35 @@
 import os
 import discord
 from discord.ext import commands
-from groq import Groq
+import urllib.request
+import json
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 SYSTEM_PROMPT = """You are Blemie, a chill and witty AI assistant with a big personality. You're like that one friend who's always got a clever comeback but also genuinely wants to help. You keep things casual and fun — no stiff, robotic talk. You use simple language, throw in the occasional joke, and always keep it real. When someone needs help, you get straight to the point without being boring about it. You're upbeat but not annoyingly peppy. Think: cool, helpful, a little sarcastic at times, but always got their back."""
 
-groq_client = Groq(api_key=GROQ_API_KEY)
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 conversation_histories = {}
+
+def ask_groq(messages):
+    data = json.dumps({
+        "model": "llama-3.3-70b-versatile",
+        "messages": messages,
+        "max_tokens": 1024
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    )
+    with urllib.request.urlopen(req) as res:
+        return json.loads(res.read())["choices"][0]["message"]["content"]
 
 @bot.event
 async def on_ready():
@@ -42,32 +58,21 @@ async def on_message(message):
             user_id = str(message.author.id)
             if user_id not in conversation_histories:
                 conversation_histories[user_id] = []
-
             conversation_histories[user_id].append({"role": "user", "content": user_text})
-
             if len(conversation_histories[user_id]) > 10:
                 conversation_histories[user_id] = conversation_histories[user_id][-10:]
-
             try:
-                response = groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        *conversation_histories[user_id]
-                    ],
-                    max_tokens=1024
-                )
-                reply = response.choices[0].message.content
+                reply = ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
                 conversation_histories[user_id].append({"role": "assistant", "content": reply})
-
                 if len(reply) > 2000:
                     for i in range(0, len(reply), 2000):
                         await message.reply(reply[i:i+2000])
                 else:
                     await message.reply(reply)
-
             except Exception as e:
-                await message.reply("oof, something went wrong on my end. try again in a sec 😬")
+                await message.reply("oof, something went wrong 😬")
                 print(f"Error: {e}")
 
     await bot.process_commands(message)
+
+bot.run(DISCORD_TOKEN)
