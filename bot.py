@@ -1,8 +1,7 @@
 import os
 import discord
 from discord.ext import commands
-import urllib.request
-import urllib.error
+import aiohttp
 import json
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -15,29 +14,29 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 conversation_histories = {}
 
-def ask_groq(messages):
-    data = json.dumps({
+async def ask_groq(messages):
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": messages,
         "max_tokens": 1024
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
-        data=data,
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-    )
-    try:
-        with urllib.request.urlopen(req) as res:
-            return json.loads(res.read())["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        print(f"Groq HTTP error: {e.code} {e.read()}")
-        return None
-    except Exception as e:
-        print(f"Groq error: {e}")
-        return None
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                text = await resp.text()
+                print(f"Groq error {resp.status}: {text}")
+                return None
 
 @bot.event
 async def on_ready():
@@ -72,7 +71,7 @@ async def on_message(message):
             if len(conversation_histories[user_id]) > 10:
                 conversation_histories[user_id] = conversation_histories[user_id][-10:]
 
-            reply = ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
+            reply = await ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
 
             if reply:
                 conversation_histories[user_id].append({"role": "assistant", "content": reply})
