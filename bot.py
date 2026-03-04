@@ -2,6 +2,7 @@ import os
 import discord
 from discord.ext import commands
 import urllib.request
+import urllib.error
 import json
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -11,7 +12,7 @@ SYSTEM_PROMPT = """You are Blemie, a chill and witty AI assistant with a big per
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 conversation_histories = {}
 
 def ask_groq(messages):
@@ -28,8 +29,15 @@ def ask_groq(messages):
             "Content-Type": "application/json"
         }
     )
-    with urllib.request.urlopen(req) as res:
-        return json.loads(res.read())["choices"][0]["message"]["content"]
+    try:
+        with urllib.request.urlopen(req) as res:
+            return json.loads(res.read())["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        print(f"Groq HTTP error: {e.code} {e.read()}")
+        return None
+    except Exception as e:
+        print(f"Groq error: {e}")
+        return None
 
 @bot.event
 async def on_ready():
@@ -58,21 +66,22 @@ async def on_message(message):
             user_id = str(message.author.id)
             if user_id not in conversation_histories:
                 conversation_histories[user_id] = []
+
             conversation_histories[user_id].append({"role": "user", "content": user_text})
+
             if len(conversation_histories[user_id]) > 10:
                 conversation_histories[user_id] = conversation_histories[user_id][-10:]
-            try:
-                reply = ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
+
+            reply = ask_groq([{"role": "system", "content": SYSTEM_PROMPT}, *conversation_histories[user_id]])
+
+            if reply:
                 conversation_histories[user_id].append({"role": "assistant", "content": reply})
                 if len(reply) > 2000:
                     for i in range(0, len(reply), 2000):
                         await message.reply(reply[i:i+2000])
                 else:
                     await message.reply(reply)
-            except Exception as e:
-                await message.reply("oof, something went wrong 😬")
-                print(f"Error: {e}")
-
-    await bot.process_commands(message)
+            else:
+                await message.reply("hmm my brain glitched, try again 😅")
 
 bot.run(DISCORD_TOKEN)
