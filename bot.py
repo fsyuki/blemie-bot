@@ -8,6 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+YOUR_SERVER_ID = 1478763941583917137  # ← paste your server ID here as a number
 
 SYSTEM_PROMPT = """You are Blemie, a chill and witty AI assistant with a big personality. You're like that one friend who's always got a clever comeback but also genuinely wants to help. You keep things casual and fun — no stiff, robotic talk. You use simple language, throw in the occasional joke, and always keep it real. When someone needs help, you get straight to the point without being boring about it. You're upbeat but not annoyingly peppy. Think: cool, helpful, a little sarcastic at times, but always got their back."""
 
@@ -56,12 +57,13 @@ async def ask_groq(messages):
 
 @bot.event
 async def on_ready():
-    # Sync globally so /ask works in DMs and all servers
-    await bot.tree.sync()
+    # Sync to your server instantly + globally for DMs
+    guild = discord.Object(id=YOUR_SERVER_ID)
+    bot.tree.copy_global_to(guild=guild)
+    await bot.tree.sync(guild=guild)
+    await bot.tree.sync()  # global sync for DMs
     print(f"Blemie is online as {bot.user}!")
-    print(f"Invite link: https://discord.com/oauth2/authorize?client_id={bot.user.id}&scope=bot+applications.commands&permissions=277025392640")
 
-# Global /ask command that works in DMs, servers, everywhere
 @bot.tree.command(name="ask", description="Ask Blemie anything!")
 @app_commands.describe(question="What do you want to ask Blemie?")
 async def ask(interaction: discord.Interaction, question: str):
